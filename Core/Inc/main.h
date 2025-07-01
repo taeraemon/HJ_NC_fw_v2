@@ -77,8 +77,8 @@ void Error_Handler(void);
 #define ADC_VA_CH3_GPIO_Port GPIOC
 #define ADC_VA_CH7_Pin GPIO_PIN_5
 #define ADC_VA_CH7_GPIO_Port GPIOC
-#define ADC_VA_CH9_Pin GPIO_PIN_0
-#define ADC_VA_CH9_GPIO_Port GPIOB
+#define ADC_VA_CH8_Pin GPIO_PIN_0
+#define ADC_VA_CH8_GPIO_Port GPIOB
 #define ADC_VA_CH4_Pin GPIO_PIN_1
 #define ADC_VA_CH4_GPIO_Port GPIOB
 #define ADC_VA_CH1_Pin GPIO_PIN_11
