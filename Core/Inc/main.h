@@ -101,6 +101,8 @@ void Error_Handler(void);
 #define SV_CH7_GPIO_Port GPIOD
 #define SV_CH8_Pin GPIO_PIN_15
 #define SV_CH8_GPIO_Port GPIOD
+#define LED_Pin GPIO_PIN_7
+#define LED_GPIO_Port GPIOG
 
 /* USER CODE BEGIN Private defines */
 
