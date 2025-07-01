@@ -1055,10 +1055,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, SV_CH1_Pin|SV_CH2_Pin|SV_CH3_Pin|SV_CH4_Pin
+                          |SV_CH5_Pin|SV_CH6_Pin|SV_CH7_Pin|SV_CH8_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PG5 PG7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_7;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : SV_CH1_Pin SV_CH2_Pin SV_CH3_Pin SV_CH4_Pin
+                           SV_CH5_Pin SV_CH6_Pin SV_CH7_Pin SV_CH8_Pin */
+  GPIO_InitStruct.Pin = SV_CH1_Pin|SV_CH2_Pin|SV_CH3_Pin|SV_CH4_Pin
+                          |SV_CH5_Pin|SV_CH6_Pin|SV_CH7_Pin|SV_CH8_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PG7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

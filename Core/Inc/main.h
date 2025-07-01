@@ -85,6 +85,22 @@ void Error_Handler(void);
 #define ADC_VA_CH1_GPIO_Port GPIOF
 #define ADC_VA_CH5_Pin GPIO_PIN_12
 #define ADC_VA_CH5_GPIO_Port GPIOF
+#define SV_CH1_Pin GPIO_PIN_8
+#define SV_CH1_GPIO_Port GPIOD
+#define SV_CH2_Pin GPIO_PIN_9
+#define SV_CH2_GPIO_Port GPIOD
+#define SV_CH3_Pin GPIO_PIN_10
+#define SV_CH3_GPIO_Port GPIOD
+#define SV_CH4_Pin GPIO_PIN_11
+#define SV_CH4_GPIO_Port GPIOD
+#define SV_CH5_Pin GPIO_PIN_12
+#define SV_CH5_GPIO_Port GPIOD
+#define SV_CH6_Pin GPIO_PIN_13
+#define SV_CH6_GPIO_Port GPIOD
+#define SV_CH7_Pin GPIO_PIN_14
+#define SV_CH7_GPIO_Port GPIOD
+#define SV_CH8_Pin GPIO_PIN_15
+#define SV_CH8_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 
