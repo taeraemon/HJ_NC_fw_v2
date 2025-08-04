@@ -14,6 +14,10 @@
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
 #include <string.h>
+
+// #include "i2c.h"          // hi2c1/hi2c2 등 사용 중인 I2C 핸들
+#include <stdio.h>        // snprintf
+extern I2C_HandleTypeDef hi2c1;
 // ----------------------------------------------------------------
 
 
@@ -30,6 +34,33 @@ static const uint16_t SV_PINS[8] = {
 // ----------------------------------------------------------------
 
 
+
+// ----------------------------------------------------------------
+// USB가 제대로 붙었을 때만 전송
+static inline uint8_t cdc_send_line(const char* s)
+{
+    extern USBD_HandleTypeDef hUsbDeviceHS;
+    if (hUsbDeviceHS.dev_state != USBD_STATE_CONFIGURED) return USBD_FAIL;
+    return CDC_Transmit_HS((uint8_t*)s, (uint16_t)strlen(s));
+}
+
+static void I2C_ScanOnce(I2C_HandleTypeDef* hi2c)
+{
+    char line[48];
+    cdc_send_line("\r\n[I2C scan]\r\n");
+
+    int found = 0;
+    for (uint8_t addr = 0x08; addr <= 0x77; ++addr) {
+        // HAL은 8-bit 주소를 받으므로 7-bit << 1
+        if (HAL_I2C_IsDeviceReady(hi2c, (addr << 1), 1, 2) == HAL_OK) {
+            int n = snprintf(line, sizeof(line), "  device @ 0x%02X\r\n", addr);
+            if (n > 0) cdc_send_line(line);
+            found++;
+        }
+    }
+    if (!found) cdc_send_line("  (none)\r\n");
+}
+// ----------------------------------------------------------------
 
 
 
@@ -83,6 +114,18 @@ void loop(void)
             usb_t = now;  // 성공 시에만 타임스탬프 갱신
         }
         // USBD_BUSY면 다음 loop에서 다시 시도 (논블로킹)
+    }
+    // ----------------------------------------------------------------
+
+
+
+    // ----------------------------------------------------------------
+    // I2C 스캔 테스트
+
+    static uint32_t i2c_scan_t = 0;
+    if (now - i2c_scan_t >= 5000U) {              // 5초마다 스캔
+        I2C_ScanOnce(&hi2c1);                     // 사용 중인 핸들로 변경 가능
+        i2c_scan_t = now;
     }
     // ----------------------------------------------------------------
 }
