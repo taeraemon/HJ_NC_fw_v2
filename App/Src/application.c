@@ -6,6 +6,7 @@
  */
 
 #include "main.h"
+#include "stdint.h"
 
 void setup(void)
 {
@@ -14,11 +15,15 @@ void setup(void)
 
 void loop(void)
 {
-	// LED 켜기
-	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_SET);
-	HAL_Delay(500);  // 500ms 대기
-	
-	// LED 끄기
-	HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_RESET);
-	HAL_Delay(500);  // 500ms 대기
+    // ----------------------------------------------------------------
+    // 디버그 LED 토글 테스트
+
+    static uint32_t last_ms = 0;
+    uint32_t now = HAL_GetTick();
+
+    if ((now - last_ms) >= 1000U) { // 1초마다 토글
+        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+        last_ms = now;
+    }
+    // ----------------------------------------------------------------
 }
