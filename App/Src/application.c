@@ -5,12 +5,33 @@
  *      Author: tykim
  */
 
+
+
+// ----------------------------------------------------------------
 #include "main.h"
-#include "stdint.h"
+#include <stdint.h>
+// ----------------------------------------------------------------
+
+
+
+// ----------------------------------------------------------------
+static GPIO_TypeDef* const SV_PORTS[8] = {
+    SV_CH1_GPIO_Port, SV_CH2_GPIO_Port, SV_CH3_GPIO_Port, SV_CH4_GPIO_Port,
+    SV_CH5_GPIO_Port, SV_CH6_GPIO_Port, SV_CH7_GPIO_Port, SV_CH8_GPIO_Port
+};
+static const uint16_t SV_PINS[8] = {
+    SV_CH1_Pin, SV_CH2_Pin, SV_CH3_Pin, SV_CH4_Pin,
+    SV_CH5_Pin, SV_CH6_Pin, SV_CH7_Pin, SV_CH8_Pin
+};
+// ----------------------------------------------------------------
+
+
+
+
 
 void setup(void)
 {
-
+    for (int i = 0; i < 8; ++i) HAL_GPIO_WritePin(SV_PORTS[i], SV_PINS[i], GPIO_PIN_RESET);
 }
 
 void loop(void)
@@ -24,6 +45,26 @@ void loop(void)
     if ((now - last_ms) >= 1000U) { // 1초마다 토글
         HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
         last_ms = now;
+    }
+    // ----------------------------------------------------------------
+
+
+
+    // ----------------------------------------------------------------
+    // SV 테스트
+
+    static uint32_t sv_t = 0;
+    static uint8_t idx = 0;
+
+    if (now - sv_t >= 1000U) {
+        // 모두 끄고 현재 것만 켜기
+        for (int i = 0; i < 8; ++i) {
+            HAL_GPIO_WritePin(SV_PORTS[i], SV_PINS[i], GPIO_PIN_RESET);
+        }
+        HAL_GPIO_WritePin(SV_PORTS[idx], SV_PINS[idx], GPIO_PIN_SET);
+
+        idx = (idx + 1) & 0x07;   // 0~7 반복
+        sv_t = now;
     }
     // ----------------------------------------------------------------
 }
