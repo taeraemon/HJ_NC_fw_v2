@@ -19,6 +19,8 @@
 #include <stdio.h>        // snprintf
 
 #include "pca9685_servo.h"
+
+#include <ctype.h>  // isspace, toupper
 // ----------------------------------------------------------------
 
 
@@ -100,6 +102,19 @@ static uint16_t g_tc_mv[6];  // 0~3300mV 가정
 
 /* SV 상태 저장 (0/1) */
 static uint8_t  g_sv_state[8];
+
+
+/* ===== UMB 프레이밍 (':' ... '#') ===== */
+#define UMB_PKT_MAX   512   // 페이로드 최대 길이(필요시 조절)
+
+static volatile uint8_t  umb_pkt_ready = 0;     // 1이면 main에서 가져가면 됨
+static uint8_t           umb_pkt_buf[UMB_PKT_MAX];
+static volatile uint16_t umb_pkt_len = 0;
+
+static uint8_t           umb_work_buf[UMB_PKT_MAX];
+static uint16_t          umb_work_len = 0;
+static uint8_t           umb_collecting = 0;    // 0:대기, 1:수집 중
+static volatile uint32_t umb_pkt_drop_ovf = 0;  // 오버플로 드롭 카운트(옵션)
 // ----------------------------------------------------------------
 
 
@@ -123,11 +138,57 @@ static inline void uart_rx_byte_push(UartRx* u)
 // HAL 수신 완료 콜백
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    // 어떤 채널인지 매칭
     for (int ch = 0; ch < UART_CH_COUNT; ++ch) {
         if (huart == g_uart[ch].huart) {
-            uart_rx_byte_push(&g_uart[ch]);
-            // 다음 바이트 수신 재개
+
+            // ==== UMB 채널(USART2)만 프레이밍 처리 ====
+            if (ch == UART_CH_UMB) {
+                uint8_t b = g_uart[ch].rx1;
+
+                if (!umb_collecting) {
+                    if (b == ':') {            // 프레임 시작
+                        umb_collecting = 1;
+                        umb_work_len = 0;
+                    }
+                    // 그 외 바이트는 무시
+                } else {
+                    if (b == '#') {            // 프레임 종료
+                        if (!umb_pkt_ready) {
+                            // 준비된 패킷 슬롯이 비었을 때만 복사
+                            uint16_t copy_len = umb_work_len;
+                            if (copy_len > UMB_PKT_MAX) copy_len = UMB_PKT_MAX; // 방어
+                            memcpy(umb_pkt_buf, umb_work_buf, copy_len);
+                            umb_pkt_len   = copy_len;
+                            umb_pkt_ready = 1;  // main 루프에서 가져가세요
+                        } else {
+                            // 아직 이전 패킷을 소비 안했으면 드롭(옵션 카운트)
+                            umb_pkt_drop_ovf++;
+                        }
+                        umb_collecting = 0;     // 수집 종료
+                        umb_work_len   = 0;
+                    } else if (b == ':') {
+                        // 스타트가 연속으로 오면 새 프레임으로 리셋
+                        umb_collecting = 1;
+                        umb_work_len   = 0;
+                    } else {
+                        // 페이로드 수집
+                        if (umb_work_len < UMB_PKT_MAX) {
+                            umb_work_buf[umb_work_len++] = b;
+                        } else {
+                            // 페이로드 오버플로 → 이번 프레임 드롭
+                            umb_collecting = 0;
+                            umb_work_len   = 0;
+                            umb_pkt_drop_ovf++;
+                        }
+                    }
+                }
+
+            } else {
+                // ==== UMB 외 채널은 기존 방식대로 버퍼에 쌓기 ====
+                uart_rx_byte_push(&g_uart[ch]);
+            }
+
+            // 다음 바이트 수신 재개(모든 채널 공통)
             HAL_UART_Receive_IT(g_uart[ch].huart, &g_uart[ch].rx1, 1);
             break;
         }
@@ -208,6 +269,64 @@ static void read_tc_all_mv(uint16_t out_mv[6])
         out_mv[i] = adc_read_millivolt(&hadc3, TC_ADC3_CH[i]);
     }
 }
+
+static inline int clamp_int(int v, int lo, int hi){ return (v<lo)?lo:(v>hi)?hi:v; }
+
+/* 앞뒤 공백 제거 (in-place, null-terminated) */
+static void str_trim(char* s){
+    char* p = s; while(*p && isspace((unsigned char)*p)) p++;
+    char* q = s + strlen(s);
+    while(q>s && isspace((unsigned char)q[-1])) --q;
+    size_t n = (size_t)(q - p);
+    if (p != s) memmove(s, p, n);
+    s[n] = '\0';
+}
+
+/* 페이로드 예: "SV;3;1"  또는 "MV;1;120" */
+static void umb_execute_packet(char* local)
+{
+    char* cmd = strtok(local, ";");
+    if (!cmd){ return; }
+    str_trim(cmd);
+
+    // ------------------ SV;idx;val(0|1) ------------------
+    if (strcmp(cmd, "SV") == 0) {
+        char* tok_idx = strtok(NULL, ";");
+        char* tok_val = strtok(NULL, ";");
+        if (!tok_idx || !tok_val){ return; }
+        str_trim(tok_idx); str_trim(tok_val);
+
+        int ch   = atoi(tok_idx);     // 0-based 입력 (0~7)
+        int valn = atoi(tok_val);     // 0 또는 1
+        if (ch < 0 || ch > 7) { return; }
+        if (!(valn == 0 || valn == 1)) { return; }
+
+        GPIO_PinState val = valn ? GPIO_PIN_SET : GPIO_PIN_RESET;
+
+        HAL_GPIO_WritePin(SV_PORTS[ch], SV_PINS[ch], val);
+        g_sv_state[ch] = (uint8_t)valn;
+        return;
+    }
+
+    // ------------------ MV;idx;angle ------------------
+    if (strcmp(cmd, "MV") == 0) {
+        char* tok_idx = strtok(NULL, ";");
+        char* tok_ang = strtok(NULL, ";");
+        if (!tok_idx || !tok_ang){ return; }
+        str_trim(tok_idx); str_trim(tok_ang);
+
+        int ch = atoi(tok_idx);     // 0-based 입력 (0~3 가정)
+        if (ch < 0 || ch > 3) { return; }
+
+        int ang = atoi(tok_ang);
+        ang = clamp_int(ang, 0, 180);
+
+        servo_write_deg((uint8_t)ch, (float)ang);
+        return;
+    }
+
+    // 기타 명령 무시
+}
 // ----------------------------------------------------------------
 
 
@@ -270,10 +389,10 @@ void setup(void)
 /*
 GCS -> NC
 - SV Command
-:몇번째;온오프#
+:SV;몇번째;온오프#
 
 - Servo Command
-:몇번쨰;각도#
+:MV;몇번쨰;각도#
 
 
 
@@ -343,6 +462,24 @@ void loop(void)
             HAL_UART_Transmit(g_uart[UART_CH_UMB].huart, (uint8_t*)msg, (uint16_t)n, 10);
         }
         rep_t = now;
+    }
+
+    // ===== UMB 패킷 처리 =====
+    if (umb_pkt_ready) {
+        // 스냅샷 복사
+        uint16_t len = umb_pkt_len;
+        if (len > UMB_PKT_MAX) len = UMB_PKT_MAX;
+        uint8_t local_buf[UMB_PKT_MAX+1]; // +1 for null
+        memcpy(local_buf, umb_pkt_buf, len);
+        local_buf[len] = '\0';
+        umb_pkt_ready = 0; // 소비 완료
+
+        // 이제 local_buf는 "SV;3;ON" 또는 "MV;1;120" 같은 페이로드 문자열
+        // 공백 제거(선택): 앞뒤만 한번 더 정리
+        str_trim((char*)local_buf);
+
+        // 실행
+        umb_execute_packet((char*)local_buf);
     }
 }
 // ----------------------------------------------------------------
