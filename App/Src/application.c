@@ -53,6 +53,44 @@ void setup(void)
     servo_write_deg(0, 90.0f); // CH0 서보를 가운데(90도)로
 }
 // ----------------------------------------------------------------
+// State Definition
+    // SV
+    // VA
+    // T_CJ
+    // TC
+    // IMU
+    // GPS
+    // Servo
+    // Volt, Amp
+
+// Fault Definition
+    // UMB Timeout
+    // TLM Timeout
+    // GPS Timeout
+    // IMU Timeout
+    // Servo Timeout
+// ----------------------------------------------------------------
+// Timer : State Update
+    // Update State
+    // Diagnose Fault
+
+// Timer : State Report
+    // To UMB, TLM
+
+// Timer : Logging
+    // if logging actiavted,
+        // Save Current State to SD Card
+
+// UART Receive
+    // if UMB received, || if TLM received,
+        // Save to each Buffer
+    // if IMU received, || if GPS received,
+        // encode with library
+
+// UART Execute
+    // if UMB received, || if TLM received,
+        // Execute Command
+// ----------------------------------------------------------------
 void loop(void)
 {
     // Debug LED toggling (visual health check)
