@@ -29,6 +29,14 @@
 extern I2C_HandleTypeDef hi2c1;
 
 extern UART_HandleTypeDef huart2;   // UMB
+extern UART_HandleTypeDef huart5;   // TLM
+extern UART_HandleTypeDef huart4;   // IMU
+extern UART_HandleTypeDef huart3;   // GPS
+
+#define UMB_RX_BUF_SIZE 1024
+static uint8_t        g_umb_rx_buf[UMB_RX_BUF_SIZE];
+static volatile uint16_t g_umb_len = 0;        // 현재 쌓인 길이
+static uint8_t        g_umb_rx_byte;           // IRQ 1바이트 버퍼
 
 static GPIO_TypeDef* const SV_PORTS[8] = {
     SV_CH1_GPIO_Port, SV_CH2_GPIO_Port, SV_CH3_GPIO_Port, SV_CH4_GPIO_Port,
@@ -42,6 +50,33 @@ static const uint16_t SV_PINS[8] = {
 
 
 
+/* >>> ADD: UART 수신 콜백 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2) {             // UMB
+        if (g_umb_len < UMB_RX_BUF_SIZE) {
+            g_umb_rx_buf[g_umb_len++] = g_umb_rx_byte;
+        } else {
+            // "다 채우면 비우고 쌓고": 길이 0으로 리셋(원하면 memset으로 실제 비움)
+            g_umb_len = 0;
+            // memset(g_umb_rx_buf, 0, UMB_RX_BUF_SIZE); // 진짜 초기화가 필요하면 주석 해제
+            g_umb_rx_buf[g_umb_len++] = g_umb_rx_byte;  // 첫 바이트 저장
+        }
+        // 다음 1바이트 수신 재개
+        HAL_UART_Receive_IT(&huart2, &g_umb_rx_byte, 1);
+    }
+}
+
+/* 수신에러 발생 시 재개 */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2) {
+        // 간단 재시작
+        HAL_UART_Receive_IT(&huart2, &g_umb_rx_byte, 1);
+    }
+}
+/* <<< ADD END */
+
 
 
 // ----------------------------------------------------------------
@@ -51,6 +86,8 @@ void setup(void)
 
     pca9685_init();            // PCA9685 50Hz 설정
     servo_write_deg(0, 90.0f); // CH0 서보를 가운데(90도)로
+
+    HAL_UART_Receive_IT(&huart2, &g_umb_rx_byte, 1);
 }
 // ----------------------------------------------------------------
 // State Definition
@@ -101,5 +138,18 @@ void loop(void)
         HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
         last_ms = now;
     }
+
+    /* >>> ADD: 1초마다 UMB 버퍼 길이 보고 */
+    static uint32_t umb_report_t = 0;
+    if (now - umb_report_t >= 1000U) {
+        uint16_t len_snapshot = g_umb_len; // IRQ와 경합 대비 스냅샷만 읽음
+        char msg[48];
+        int n = snprintf(msg, sizeof(msg), "UMB_RX_LEN=%u\r\n", (unsigned)len_snapshot);
+        if (n > 0) {
+            HAL_UART_Transmit(&huart2, (uint8_t*)msg, (uint16_t)n, 10); // 블로킹 TX
+        }
+        umb_report_t = now;
+    }
+    /* <<< ADD END */
 }
 // ----------------------------------------------------------------
