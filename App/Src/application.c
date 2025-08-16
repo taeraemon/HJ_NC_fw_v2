@@ -19,6 +19,8 @@
 
 #include "pca9685_servo.h"
 extern I2C_HandleTypeDef hi2c1;
+
+extern UART_HandleTypeDef huart2;   // UMB
 // ----------------------------------------------------------------
 
 
@@ -145,6 +147,19 @@ void loop(void)
         servo_write_deg(0, dir ? 180.0f : 0.0f);
         dir ^= 1;
         servo_t = now;
+    }
+    // ----------------------------------------------------------------
+
+    // ----------------------------------------------------------------
+    // UART2 문자열 전송 테스트: 1초마다 "hello, <ms>"
+    static uint32_t uart2_t = 0;
+    if (now - uart2_t >= 10U) {
+        char buf[256];
+        int n = snprintf(buf, sizeof(buf), "hello, %lu\r\n", (unsigned long)now);
+        if (n > 0) {
+            HAL_UART_Transmit(&huart2, (uint8_t*)buf, (uint16_t)n, 10);
+        }
+        uart2_t = now;
     }
     // ----------------------------------------------------------------
 }
