@@ -66,3 +66,42 @@ void servo_write_deg(uint8_t ch, float deg)
     uint16_t off = servo_angle_to_ticks(deg);
     pca9685_write_led(ch, 0, off);
 }
+
+HAL_StatusTypeDef servo_read_deg(uint8_t ch, float* deg_out)
+{
+    if (!deg_out || ch > 15) return HAL_ERROR;
+
+    // LEDn_ON/OFF 읽기
+    uint8_t buf[4];
+    uint16_t reg = (uint16_t)(PCA9685_LED0_ON_L + 4U * ch);
+    if (HAL_I2C_Mem_Read(&hi2c1, PCA9685_I2C_ADDR_8B, reg, 1, buf, 4, 10) != HAL_OK)
+        return HAL_ERROR;
+
+    uint16_t on  = (uint16_t)(buf[0] | ((buf[1] & 0x0F) << 8));
+    uint16_t off = (uint16_t)(buf[2] | ((buf[3] & 0x0F) << 8));
+    uint8_t full_on  = (buf[1] & 0x10) ? 1 : 0;  // LEDn_ON_H bit4
+    uint8_t full_off = (buf[3] & 0x10) ? 1 : 0;  // LEDn_OFF_H bit4
+
+    uint16_t width;
+    if (full_on && !full_off)      width = 4096; // 항상 ON
+    else if (full_off && !full_on) width = 0;    // 항상 OFF
+    else                            width = (uint16_t)((off - on) & 0x0FFF);
+
+    // prescale 읽어서 1틱 시간(µs) 계산
+    uint8_t ps = 0;
+    if (HAL_I2C_Mem_Read(&hi2c1, PCA9685_I2C_ADDR_8B, PCA9685_PRESCALE, 1, &ps, 1, 10) != HAL_OK)
+        return HAL_ERROR;
+
+    // 1 tick = (prescale+1)/25MHz seconds
+    float tick_us = ((float)(ps + 1) / 25000000.0f) * 1.0e6f;
+
+    float pulse_us = (float)width * tick_us;
+
+    // 500–2500 µs → 0–180°
+    float deg = (pulse_us - 500.0f) * (180.0f / 2000.0f);
+    if (deg < 0.0f)   deg = 0.0f;
+    if (deg > 180.0f) deg = 180.0f;
+
+    *deg_out = deg;
+    return HAL_OK;
+}

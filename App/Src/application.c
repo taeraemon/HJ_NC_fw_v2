@@ -30,6 +30,8 @@
 // ----------------------------------------------------------------
 extern I2C_HandleTypeDef hi2c1;
 
+static float g_mv_deg[4];
+
 typedef enum {
     UART_CH_UMB = 0,  // USART2
     UART_CH_TLM,      // UART5
@@ -254,6 +256,14 @@ static void read_sv_states(uint8_t out[8])
     }
 }
 
+/* MV 4채널 스캔 */
+static void read_mv_states(float out_deg[4])
+{
+    for (int i = 0; i < 4; ++i) {
+        servo_read_deg(i, &out_deg[i]);
+    }
+}
+
 /* VA 8채널 스캔 (ADC1) */
 static void read_va_all_mv(uint16_t out_mv[8])
 {
@@ -436,6 +446,7 @@ void loop(void)
     static uint32_t sense_t = 0;
     if (now - sense_t >= 100U) {
         read_sv_states(g_sv_state);
+        read_mv_states(g_mv_deg);
         read_va_all_mv(g_va_mv);
         read_tc_all_mv(g_tc_mv);
         sense_t = now;
@@ -444,12 +455,13 @@ void loop(void)
     // === 100ms마다 UMB로 상태 요약 전송 ===
     static uint32_t rep_t = 0;
     if (now - rep_t >= 100U) {
-        char msg[256];
+        char msg[512];
         int n = snprintf(msg, sizeof(msg),
             "LEN UMB=%u TLM=%u IMU=%u GPS=%u | "
             "SV=%u%u%u%u%u%u%u%u | "
             "VA(mV)=%u,%u,%u,%u,%u,%u,%u,%u | "
-            "TC(mV)=%u,%u,%u,%u,%u,%u\r\n",
+            "TC(mV)=%u,%u,%u,%u,%u,%u | "
+            "MV(deg)=%.1f,%.1f,%.1f,%.1f\r\n",
             (unsigned)g_uart[UART_CH_UMB].len,
             (unsigned)g_uart[UART_CH_TLM].len,
             (unsigned)g_uart[UART_CH_IMU].len,
@@ -459,10 +471,11 @@ void loop(void)
             g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3],
             g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
             g_tc_mv[0], g_tc_mv[1], g_tc_mv[2],
-            g_tc_mv[3], g_tc_mv[4], g_tc_mv[5]
+            g_tc_mv[3], g_tc_mv[4], g_tc_mv[5],
+            g_mv_deg[0], g_mv_deg[1], g_mv_deg[2], g_mv_deg[3]
         );
         if (n > 0) {
-            HAL_UART_Transmit(g_uart[UART_CH_UMB].huart, (uint8_t*)msg, (uint16_t)n, 10);
+            HAL_UART_Transmit(g_uart[UART_CH_UMB].huart, (uint8_t*)msg, (uint16_t)n, 20);
         }
         rep_t = now;
     }
