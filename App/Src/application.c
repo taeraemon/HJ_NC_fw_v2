@@ -103,8 +103,8 @@ void setup(void)
 // Fault Definition
     // UMB Timeout
     // TLM Timeout
-    // GPS Timeout
     // IMU Timeout
+    // GPS Timeout
     // Servo Timeout
 // ----------------------------------------------------------------
 // Timer : State Update
@@ -127,6 +127,38 @@ void setup(void)
 // UART Execute
     // if UMB received, || if TLM received,
         // Execute Command
+// ----------------------------------------------------------------
+/*
+GCS -> NC
+- SV Command
+:몇번째;온오프#
+
+- Servo Command
+:몇번쨰;각도#
+
+
+
+NC -> GCS
+:
+SV (CH1,CH2,CH3,CH4,CH5,CH6,CH7,CH8)
+;
+VA (CH1,CH2,CH3,CH4,CH5,CH6,CH7,CH8)
+;
+T_CJ
+;
+TC (CH1,CH2,CH3,CH4,CH5,CH6)
+;
+SERVO (CH1,CH2,CH3,CH4)
+;
+IMU (PITCH, ROLL, YAW, ACC_X, ACC_Y, ACC_Z, GYRO_X, GYRO_Y, GYRO_Z)
+;
+GPS (FIX_READY, LAT, LON, ALT, SPEED, HEADING, SATELLITE COUNT)
+;
+STATE (Volt, Amp)
+;
+FAULT (UMB_TIMEOUT, TLM_TIMEOUT, GPS_TIMEOUT, IMU_TIMEOUT, SERVO_TIMEOUT)
+#
+*/
 // ----------------------------------------------------------------
 void loop(void)
 {
