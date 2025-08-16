@@ -339,7 +339,10 @@ void setup(void)
     for (int i = 0; i < 8; ++i) HAL_GPIO_WritePin(SV_PORTS[i], SV_PINS[i], GPIO_PIN_RESET);
 
     pca9685_init();            // PCA9685 50Hz 설정
-    servo_write_deg(0, 90.0f); // CH0 서보를 가운데(90도)로
+
+    for (int i = 0; i < 4; ++i) {
+        servo_write_deg(i, 0.0f);
+    }
 
     // 모든 UART 채널 1바이트 IRQ 수신 시작
     for (int ch = 0; ch < UART_CH_COUNT; ++ch) {
