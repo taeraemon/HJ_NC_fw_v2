@@ -77,6 +77,29 @@ static const uint16_t SV_PINS[8] = {
     SV_CH1_Pin, SV_CH2_Pin, SV_CH3_Pin, SV_CH4_Pin,
     SV_CH5_Pin, SV_CH6_Pin, SV_CH7_Pin, SV_CH8_Pin
 };
+
+/* ADC 핸들 extern */
+extern ADC_HandleTypeDef hadc1;  // VA용 (16-bit)
+extern ADC_HandleTypeDef hadc3;  // TC용 (12-bit)
+
+/* VA(ADC1) 채널 테이블: CH1~CH8 -> INP2~INP9 */
+static const uint32_t VA_ADC1_CH[8] = {
+    ADC_CHANNEL_2, ADC_CHANNEL_3, ADC_CHANNEL_4, ADC_CHANNEL_5,
+    ADC_CHANNEL_6, ADC_CHANNEL_7, ADC_CHANNEL_8, ADC_CHANNEL_9
+};
+
+/* TC(ADC3) 채널 테이블: CH1~CH6 -> INP1,4,5,9,10,11 */
+static const uint32_t TC_ADC3_CH[6] = {
+    ADC_CHANNEL_1, ADC_CHANNEL_4, ADC_CHANNEL_5,
+    ADC_CHANNEL_9, ADC_CHANNEL_10, ADC_CHANNEL_11
+};
+
+/* 최근값 저장 (단위: mV) */
+static uint16_t g_va_mv[8];  // 0~3300mV 가정
+static uint16_t g_tc_mv[6];  // 0~3300mV 가정
+
+/* SV 상태 저장 (0/1) */
+static uint8_t  g_sv_state[8];
 // ----------------------------------------------------------------
 
 
@@ -119,6 +142,70 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
             HAL_UART_Receive_IT(g_uart[ch].huart, &g_uart[ch].rx1, 1);
             break;
         }
+    }
+}
+
+/* 공통 ADC 단일 변환: mV 반환 (VDDA=3.3V 가정) */
+static uint16_t adc_read_millivolt(ADC_HandleTypeDef* hadc, uint32_t ch)
+{
+    ADC_ChannelConfTypeDef s = {0};
+    s.Channel      = ch;
+    s.Rank         = ADC_REGULAR_RANK_1;
+    /* 각 ADC의 샘플링타임은 MX_Init에서 설정된 값과 일치시키면 좋습니다. */
+    if (hadc->Instance == ADC1) {
+        s.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;   // ioc와 동일
+        s.SingleDiff   = ADC_SINGLE_ENDED;
+        s.OffsetNumber = ADC_OFFSET_NONE;
+        s.Offset       = 0;
+        s.OffsetSignedSaturation = DISABLE;
+    } else {
+        /* ADC3 */
+        s.SamplingTime = ADC3_SAMPLETIME_2CYCLES_5; // ioc와 동일
+        s.SingleDiff   = ADC_SINGLE_ENDED;
+        s.OffsetNumber = ADC_OFFSET_NONE;
+        s.Offset       = 0;
+        /* H7의 ADC3는 OffsetSign 필드가 따로 있지만 여기선 0 */
+    }
+
+    if (HAL_ADC_ConfigChannel(hadc, &s) != HAL_OK) return 0;
+
+    if (HAL_ADC_Start(hadc) != HAL_OK) return 0;
+    if (HAL_ADC_PollForConversion(hadc, 2) != HAL_OK) { HAL_ADC_Stop(hadc); return 0; }
+
+    uint32_t raw = HAL_ADC_GetValue(hadc);
+    HAL_ADC_Stop(hadc);
+
+    /* 해상도에 맞게 mV 변환 (VDDA=3.3V 가정) */
+    if (hadc->Instance == ADC1) {
+        /* 16-bit */
+        return (uint16_t)((raw * 3300UL) / 65535UL);
+    } else {
+        /* ADC3: 12-bit */
+        return (uint16_t)((raw * 3300UL) / 4095UL);
+    }
+}
+
+/* SV 상태 읽기: 현재 핀 입력 레지스터 값(IDR) 기반 (출력이어도 읽기 가능) */
+static void read_sv_states(uint8_t out[8])
+{
+    for (int i = 0; i < 8; ++i) {
+        out[i] = (HAL_GPIO_ReadPin(SV_PORTS[i], SV_PINS[i]) == GPIO_PIN_SET) ? 1 : 0;
+    }
+}
+
+/* VA 8채널 스캔 (ADC1) */
+static void read_va_all_mv(uint16_t out_mv[8])
+{
+    for (int i = 0; i < 8; ++i) {
+        out_mv[i] = adc_read_millivolt(&hadc1, VA_ADC1_CH[i]);
+    }
+}
+
+/* TC 6채널 스캔 (ADC3) — 여기서는 mV까지만, 온도로의 변환은 센서/게인 정보 필요 */
+static void read_tc_all_mv(uint16_t out_mv[6])
+{
+    for (int i = 0; i < 6; ++i) {
+        out_mv[i] = adc_read_millivolt(&hadc3, TC_ADC3_CH[i]);
     }
 }
 // ----------------------------------------------------------------
@@ -223,21 +310,35 @@ void loop(void)
         last_ms = now;
     }
 
+    // === 100ms마다 SV/VA/TC 갱신 ===
+    static uint32_t sense_t = 0;
+    if (now - sense_t >= 100U) {
+        read_sv_states(g_sv_state);
+        read_va_all_mv(g_va_mv);
+        read_tc_all_mv(g_tc_mv);
+        sense_t = now;
+    }
 
+    // === 100ms마다 UMB로 상태 요약 전송 ===
     static uint32_t rep_t = 0;
-    // 100ms마다 각 채널 len 보고 (UMB로 송신)
-    if (now - rep_t >= 100) {
-        char msg[96];
-        // 스냅샷(IRQ 경합 최소화 위해 읽기만)
-        uint16_t l_umb = g_uart[UART_CH_UMB].len;
-        uint16_t l_tlm = g_uart[UART_CH_TLM].len;
-        uint16_t l_imu = g_uart[UART_CH_IMU].len;
-        uint16_t l_gps = g_uart[UART_CH_GPS].len;
-
+    if (now - rep_t >= 100U) {
+        char msg[256];
         int n = snprintf(msg, sizeof(msg),
-                        "LEN UMB=%u TLM=%u IMU=%u GPS=%u\r\n",
-                        (unsigned)l_umb, (unsigned)l_tlm,
-                        (unsigned)l_imu, (unsigned)l_gps);
+            "LEN UMB=%u TLM=%u IMU=%u GPS=%u | "
+            "SV=%u%u%u%u%u%u%u%u | "
+            "VA(mV)=%u,%u,%u,%u,%u,%u,%u,%u | "
+            "TC(mV)=%u,%u,%u,%u,%u,%u\r\n",
+            (unsigned)g_uart[UART_CH_UMB].len,
+            (unsigned)g_uart[UART_CH_TLM].len,
+            (unsigned)g_uart[UART_CH_IMU].len,
+            (unsigned)g_uart[UART_CH_GPS].len,
+            g_sv_state[0], g_sv_state[1], g_sv_state[2], g_sv_state[3],
+            g_sv_state[4], g_sv_state[5], g_sv_state[6], g_sv_state[7],
+            g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3],
+            g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
+            g_tc_mv[0], g_tc_mv[1], g_tc_mv[2],
+            g_tc_mv[3], g_tc_mv[4], g_tc_mv[5]
+        );
         if (n > 0) {
             HAL_UART_Transmit(g_uart[UART_CH_UMB].huart, (uint8_t*)msg, (uint16_t)n, 10);
         }
