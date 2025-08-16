@@ -110,14 +110,14 @@ static uint8_t  g_sv_state[8];
 // 공통 처리 루틴
 static inline void uart_rx_byte_push(UartRx* u)
 {
-  if (u->len < u->cap) {
-    u->buf[u->len++] = u->rx1;
-  } else {
-    // 정책: 꽉 차면 비우고 처음부터 (필요하면 memset으로 지우기)
-    u->len = 0;
-    // memset(u->buf, 0, u->cap);
-    u->buf[u->len++] = u->rx1;
-  }
+    if (u->len < u->cap) {
+        u->buf[u->len++] = u->rx1;
+    } else {
+        // 정책: 꽉 차면 비우고 처음부터 (필요하면 memset으로 지우기)
+        u->len = 0;
+        // memset(u->buf, 0, u->cap);
+        u->buf[u->len++] = u->rx1;
+    }
 }
 
 // HAL 수신 완료 콜백
