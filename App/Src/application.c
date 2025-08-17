@@ -465,22 +465,27 @@ void loop(void)
     if (now - usb_t >= 100U) {
         char msg[512];
         int n = snprintf(msg, sizeof(msg),
-            "LEN UMB=%u TLM=%u IMU=%u GPS=%u | "
+            "LEN UMB=%4u TLM=%4u IMU=%4u GPS=%4u | "
+            "BOOT=%lu | "
+            "TEMP=%3.1f | "
+            "VOLT=%3.1f | "
             "SV=%u%u%u%u%u%u%u%u | "
-            "VA(mV)=%u,%u,%u,%u,%u,%u,%u,%u | "
-            "TC(mV)=%u,%u,%u,%u,%u,%u | "
-            "MV(deg)=%.1f,%.1f,%.1f,%.1f\r\n",
-            (unsigned)g_uart[UART_CH_UMB].len,
-            (unsigned)g_uart[UART_CH_TLM].len,
-            (unsigned)g_uart[UART_CH_IMU].len,
-            (unsigned)g_uart[UART_CH_GPS].len,
-            g_sv_state[0], g_sv_state[1], g_sv_state[2], g_sv_state[3],
-            g_sv_state[4], g_sv_state[5], g_sv_state[6], g_sv_state[7],
-            g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3],
-            g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
-            g_tc_mv[0], g_tc_mv[1], g_tc_mv[2],
-            g_tc_mv[3], g_tc_mv[4], g_tc_mv[5],
-            g_mv_deg[0], g_mv_deg[1], g_mv_deg[2], g_mv_deg[3]
+            "MV=%5.1f,%5.1f,%5.1f,%5.1f | "
+            "VA=%5u,%5u,%5u,%5u,%5u,%5u,%5u,%5u | "
+            "TC=%5u,%5u,%5u,%5u,%5u,%5u | "
+            "IMU=%5.1f,%5.1f,%5.1f | "
+            "FAULT=%u,%u,%u,%u,%u | "
+            "\r\n",
+            (unsigned)g_uart[UART_CH_UMB].len, (unsigned)g_uart[UART_CH_TLM].len, (unsigned)g_uart[UART_CH_IMU].len, (unsigned)g_uart[UART_CH_GPS].len,
+            now,
+            0.0,    // TODO : implement temp (T_CJ)
+            0.0,    // TODO : implement voltage
+            g_sv_state[0], g_sv_state[1], g_sv_state[2], g_sv_state[3], g_sv_state[4], g_sv_state[5], g_sv_state[6], g_sv_state[7],
+            g_mv_deg[0], g_mv_deg[1], g_mv_deg[2], g_mv_deg[3],
+            g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3], g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
+            g_tc_mv[0], g_tc_mv[1], g_tc_mv[2], g_tc_mv[3], g_tc_mv[4], g_tc_mv[5],
+            0.0, 0.0, 0.0,  // TODO : implement imu rpy
+            0, 0, 0, 0, 0   // TODO : implement fault
         );
         if (n > 0) {
             cdc_send_line(msg);
@@ -492,23 +497,27 @@ void loop(void)
     static uint32_t rep_t = 0;
     if (now - rep_t >= 100U) {
         char msg[512];
+
         int n = snprintf(msg, sizeof(msg),
-            "LEN UMB=%u TLM=%u IMU=%u GPS=%u | "
-            "SV=%u%u%u%u%u%u%u%u | "
-            "VA(mV)=%u,%u,%u,%u,%u,%u,%u,%u | "
-            "TC(mV)=%u,%u,%u,%u,%u,%u | "
-            "MV(deg)=%.1f,%.1f,%.1f,%.1f\r\n",
-            (unsigned)g_uart[UART_CH_UMB].len,
-            (unsigned)g_uart[UART_CH_TLM].len,
-            (unsigned)g_uart[UART_CH_IMU].len,
-            (unsigned)g_uart[UART_CH_GPS].len,
-            g_sv_state[0], g_sv_state[1], g_sv_state[2], g_sv_state[3],
-            g_sv_state[4], g_sv_state[5], g_sv_state[6], g_sv_state[7],
-            g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3],
-            g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
-            g_tc_mv[0], g_tc_mv[1], g_tc_mv[2],
-            g_tc_mv[3], g_tc_mv[4], g_tc_mv[5],
-            g_mv_deg[0], g_mv_deg[1], g_mv_deg[2], g_mv_deg[3]
+            "%lu,"                      // boot time
+            "%.1f,"                     // temp (T_CJ)
+            "%.1f,"                     // voltage
+            "%u,%u,%u,%u,%u,%u,%u,%u,"  // SV
+            "%.1f,%.1f,%.1f,%.1f,"      // MV
+            "%u,%u,%u,%u,%u,%u,%u,%u,"  // VA
+            "%u,%u,%u,%u,%u,%u,"        // TC
+            "%.1f,%.1f,%.1f,"           // IMU RPY
+            "%u,%u,%u,%u,%u"            // Fault
+            "\n",
+            now,
+            0.0,    // TODO : implement temp (T_CJ)
+            0.0,    // TODO : implement voltage
+            g_sv_state[0], g_sv_state[1], g_sv_state[2], g_sv_state[3], g_sv_state[4], g_sv_state[5], g_sv_state[6], g_sv_state[7],
+            g_mv_deg[0], g_mv_deg[1], g_mv_deg[2], g_mv_deg[3],
+            g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3], g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
+            g_tc_mv[0], g_tc_mv[1], g_tc_mv[2], g_tc_mv[3], g_tc_mv[4], g_tc_mv[5],
+            0.0, 0.0, 0.0,  // TODO : implement imu rpy
+            0, 0, 0, 0, 0   // TODO : implement fault
         );
         if (n > 0) {
             HAL_UART_Transmit(g_uart[UART_CH_UMB].huart, (uint8_t*)msg, (uint16_t)n, 20);
