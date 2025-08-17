@@ -337,6 +337,14 @@ static void umb_execute_packet(char* local)
 
     // 기타 명령 무시
 }
+
+// USB가 제대로 붙었을 때만 전송
+static inline uint8_t cdc_send_line(const char* s)
+{
+    extern USBD_HandleTypeDef hUsbDeviceHS;
+    if (hUsbDeviceHS.dev_state != USBD_STATE_CONFIGURED) return USBD_FAIL;
+    return CDC_Transmit_HS((uint8_t*)s, (uint16_t)strlen(s));
+}
 // ----------------------------------------------------------------
 
 
@@ -450,6 +458,34 @@ void loop(void)
         read_va_all_mv(g_va_mv);
         read_tc_all_mv(g_tc_mv);
         sense_t = now;
+    }
+
+    // === 100ms마다 UMB로 상태 요약 전송 ===
+    static uint32_t usb_t = 0;
+    if (now - usb_t >= 100U) {
+        char msg[512];
+        int n = snprintf(msg, sizeof(msg),
+            "LEN UMB=%u TLM=%u IMU=%u GPS=%u | "
+            "SV=%u%u%u%u%u%u%u%u | "
+            "VA(mV)=%u,%u,%u,%u,%u,%u,%u,%u | "
+            "TC(mV)=%u,%u,%u,%u,%u,%u | "
+            "MV(deg)=%.1f,%.1f,%.1f,%.1f\r\n",
+            (unsigned)g_uart[UART_CH_UMB].len,
+            (unsigned)g_uart[UART_CH_TLM].len,
+            (unsigned)g_uart[UART_CH_IMU].len,
+            (unsigned)g_uart[UART_CH_GPS].len,
+            g_sv_state[0], g_sv_state[1], g_sv_state[2], g_sv_state[3],
+            g_sv_state[4], g_sv_state[5], g_sv_state[6], g_sv_state[7],
+            g_va_mv[0], g_va_mv[1], g_va_mv[2], g_va_mv[3],
+            g_va_mv[4], g_va_mv[5], g_va_mv[6], g_va_mv[7],
+            g_tc_mv[0], g_tc_mv[1], g_tc_mv[2],
+            g_tc_mv[3], g_tc_mv[4], g_tc_mv[5],
+            g_mv_deg[0], g_mv_deg[1], g_mv_deg[2], g_mv_deg[3]
+        );
+        if (n > 0) {
+            cdc_send_line(msg);
+        }
+        usb_t = now;
     }
 
     // === 100ms마다 UMB로 상태 요약 전송 ===
