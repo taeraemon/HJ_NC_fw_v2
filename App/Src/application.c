@@ -11,16 +11,19 @@
 
 // ----------------------------------------------------------------
 #include "main.h"
+
+#include "stm32h7xx_hal.h"
+#include "stm32h7xx_hal_gpio.h"
+#include "stm32h7xx_hal_adc.h"
 #include "usb_device.h"
 #include "usbd_cdc_if.h"
 
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>        // snprintf
-
 #include "pca9685_servo.h"
 
-#include <ctype.h>  // isspace, toupper
+#include <stdint.h>
+#include <string.h>
+#include <stdio.h>
+#include <ctype.h>
 // ----------------------------------------------------------------
 
 
@@ -123,6 +126,71 @@ static volatile uint32_t umb_pkt_drop_ovf = 0;  // 오버플로 드롭 카운트
 
 
 
+// ----------------------------------------------------------------
+// 유틸리티 forward 선언
+static inline int clamp_int(int v, int lo, int hi);
+// ----------------------------------------------------------------
+// 예약 실행 스케줄러
+typedef enum {
+	ACT_SV = 0,
+	ACT_MV = 1
+} ActuatorType;
+
+typedef struct {
+	uint8_t      used;     // 1이면 유효
+	ActuatorType type;     // SV/MV
+	uint8_t      index;    // SV:0..7, MV:0..3
+	int32_t      value;    // SV:0/1, MV: deg(0..180)
+	uint32_t     due_ms;   // HAL_GetTick 기준 실행 시각
+} ScheduledAction;
+
+#define SCHED_CAP 32
+static ScheduledAction g_sched[SCHED_CAP];
+
+static void schedule_clear_all(void)
+{
+	for (int i = 0; i < SCHED_CAP; ++i) g_sched[i].used = 0;
+}
+
+static uint8_t schedule_push(ActuatorType type, int idx, int val, uint32_t due_ms)
+{
+	for (int i = 0; i < SCHED_CAP; ++i) {
+		if (!g_sched[i].used) {
+			g_sched[i].used  = 1;
+			g_sched[i].type  = type;
+			g_sched[i].index = (uint8_t)idx;
+			g_sched[i].value = (int32_t)val;
+			g_sched[i].due_ms= due_ms;
+			return 1;
+		}
+	}
+	return 0; // 큐 가득
+}
+
+static void schedule_process(uint32_t now_ms)
+{
+	for (int i = 0; i < SCHED_CAP; ++i) {
+		if (!g_sched[i].used) continue;
+		// 타임랩어라운드 안전 비교
+		if ((int32_t)(now_ms - g_sched[i].due_ms) >= 0) {
+			if (g_sched[i].type == ACT_SV) {
+				int ch = g_sched[i].index;
+				int v  = g_sched[i].value ? 1 : 0;
+				if (ch >= 0 && ch < 8) {
+					HAL_GPIO_WritePin(SV_PORTS[ch], SV_PINS[ch], v ? GPIO_PIN_SET : GPIO_PIN_RESET);
+					g_sv_state[ch] = (uint8_t)v;
+				}
+			} else { // ACT_MV
+				int ch = g_sched[i].index;
+				int deg= clamp_int((int)g_sched[i].value, 0, 180);
+				if (ch >= 0 && ch < 4) {
+					servo_write_deg((uint8_t)ch, (float)deg);
+				}
+			}
+			g_sched[i].used = 0; // 소모
+		}
+	}
+}
 // ----------------------------------------------------------------
 // 공통 처리 루틴
 static inline void uart_rx_byte_push(UartRx* u)
@@ -369,6 +437,45 @@ static void umb_execute_packet(char* local)
         return;
     }
 
+	// // ------------------ 시퀀스 받아들이는 명령 ------------------
+	// 입력 형식 예: "SEQ;SV;0;1;100;MV;2;90;250;SV;1;0;500"
+	if (strcmp(cmd, "SEQ") == 0) {
+		// 기준 시점
+		uint32_t base = HAL_GetTick();
+
+		// 그룹 단위로 파싱: (ACT, idx, value, time_ms)*
+		while (1) {
+			char* tok_act = strtok(NULL, ";");
+			if (!tok_act) break;
+			str_trim(tok_act);
+
+			char* tok_idx = strtok(NULL, ";");
+			char* tok_val = strtok(NULL, ";");
+			char* tok_tms = strtok(NULL, ";");
+			if (!tok_idx || !tok_val || !tok_tms) break;
+			str_trim(tok_idx); str_trim(tok_val); str_trim(tok_tms);
+
+			int idx = atoi(tok_idx);
+			int val = atoi(tok_val);
+			int tms = atoi(tok_tms);
+			if (tms < 0) tms = 0;
+
+			if (strcmp(tok_act, "SV") == 0) {
+				if (idx < 0 || idx > 7) continue;
+				val = (val != 0) ? 1 : 0;
+				(void)schedule_push(ACT_SV, idx, val, base + (uint32_t)tms);
+			} else if (strcmp(tok_act, "MV") == 0) {
+				if (idx < 0 || idx > 3) continue;
+				val = clamp_int(val, 0, 180);
+				(void)schedule_push(ACT_MV, idx, val, base + (uint32_t)tms);
+			} else {
+				// 알 수 없는 액추에이터 타입: 무시
+			}
+		}
+		return;
+	}
+
+
     // 기타 명령 무시
 }
 
@@ -401,6 +508,9 @@ void setup(void)
         g_uart[ch].len = 0;
         HAL_UART_Receive_IT(g_uart[ch].huart, &g_uart[ch].rx1, 1);
     }
+
+	// 스케줄 초기화
+	schedule_clear_all();
 }
 // ----------------------------------------------------------------
 // State Definition
@@ -483,6 +593,9 @@ void loop(void)
         HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
         last_ms = now;
     }
+
+	// 예약된 액션들 실행
+	schedule_process(now);
 
     // === 100ms마다 SV/VA/TC 갱신 ===
     static uint32_t sense_t = 0;
