@@ -208,8 +208,48 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     }
 }
 
+// /* 공통 ADC 단일 변환: mV 반환 (VDDA=3.3V 가정) */
+// static uint16_t adc_read_millivolt(ADC_HandleTypeDef* hadc, uint32_t ch)
+// {
+//     ADC_ChannelConfTypeDef s = {0};
+//     s.Channel      = ch;
+//     s.Rank         = ADC_REGULAR_RANK_1;
+//     /* 각 ADC의 샘플링타임은 MX_Init에서 설정된 값과 일치시키면 좋습니다. */
+//     if (hadc->Instance == ADC1) {
+//         s.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;   // ioc와 동일
+//         s.SingleDiff   = ADC_SINGLE_ENDED;
+//         s.OffsetNumber = ADC_OFFSET_NONE;
+//         s.Offset       = 0;
+//         s.OffsetSignedSaturation = DISABLE;
+//     } else {
+//         /* ADC3 */
+//         s.SamplingTime = ADC3_SAMPLETIME_2CYCLES_5; // ioc와 동일
+//         s.SingleDiff   = ADC_SINGLE_ENDED;
+//         s.OffsetNumber = ADC_OFFSET_NONE;
+//         s.Offset       = 0;
+//         /* H7의 ADC3는 OffsetSign 필드가 따로 있지만 여기선 0 */
+//     }
+
+//     if (HAL_ADC_ConfigChannel(hadc, &s) != HAL_OK) return 0;
+
+//     if (HAL_ADC_Start(hadc) != HAL_OK) return 0;
+//     if (HAL_ADC_PollForConversion(hadc, 2) != HAL_OK) { HAL_ADC_Stop(hadc); return 0; }
+
+//     uint32_t raw = HAL_ADC_GetValue(hadc);
+//     HAL_ADC_Stop(hadc);
+
+//     /* 해상도에 맞게 mV 변환 (VDDA=3.3V 가정) */
+//     if (hadc->Instance == ADC1) {
+//         /* 16-bit */
+//         return (uint16_t)((raw * 3300UL) / 65535UL);
+//     } else {
+//         /* ADC3: 12-bit */
+//         return (uint16_t)((raw * 3300UL) / 4095UL);
+//     }
+// }
+
 /* 공통 ADC 단일 변환: mV 반환 (VDDA=3.3V 가정) */
-static uint16_t adc_read_millivolt(ADC_HandleTypeDef* hadc, uint32_t ch)
+static uint16_t adc_read_raw(ADC_HandleTypeDef* hadc, uint32_t ch)
 {
     ADC_ChannelConfTypeDef s = {0};
     s.Channel      = ch;
@@ -238,14 +278,8 @@ static uint16_t adc_read_millivolt(ADC_HandleTypeDef* hadc, uint32_t ch)
     uint32_t raw = HAL_ADC_GetValue(hadc);
     HAL_ADC_Stop(hadc);
 
-    /* 해상도에 맞게 mV 변환 (VDDA=3.3V 가정) */
-    if (hadc->Instance == ADC1) {
-        /* 16-bit */
-        return (uint16_t)((raw * 3300UL) / 65535UL);
-    } else {
-        /* ADC3: 12-bit */
-        return (uint16_t)((raw * 3300UL) / 4095UL);
-    }
+    // 읽은 raw값을 그대로 반환 (ADC1인 경우 16-bit, ADC3인 경우 12-bit)
+    return raw;
 }
 
 /* SV 상태 읽기: 현재 핀 입력 레지스터 값(IDR) 기반 (출력이어도 읽기 가능) */
@@ -268,7 +302,7 @@ static void read_mv_states(float out_deg[4])
 static void read_va_all_mv(uint16_t out_mv[8])
 {
     for (int i = 0; i < 8; ++i) {
-        out_mv[i] = adc_read_millivolt(&hadc1, VA_ADC1_CH[i]);
+        out_mv[i] = adc_read_raw(&hadc1, VA_ADC1_CH[i]);
     }
 }
 
@@ -276,7 +310,7 @@ static void read_va_all_mv(uint16_t out_mv[8])
 static void read_tc_all_mv(uint16_t out_mv[6])
 {
     for (int i = 0; i < 6; ++i) {
-        out_mv[i] = adc_read_millivolt(&hadc3, TC_ADC3_CH[i]);
+        out_mv[i] = adc_read_raw(&hadc3, TC_ADC3_CH[i]);
     }
 }
 
